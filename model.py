@@ -1,46 +1,44 @@
-import sys
-import json
 import torch
-from PIL import Image
+import clip
 import pickle
-import os
-import numpy as np
-import requests
 
-from CLIP import clip
-sys.modules['clip'] = clip #evil hack
+from pathlib import Path
+MODULE_DIR = Path(__file__).parent
+MODEL_FILE = MODULE_DIR/'model.torch'
+TAG_FILE = MODULE_DIR/'tags'
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
+taglist = TAG_FILE.read_text().split('\n')[:-1]
 
-print('loading tags')
-taglist = open("./tags",'r').read().split('\n')[:-1]
+class DeepDerpi:
+    def __init__(self, modules):
+        self.devices, self.shared = modules.devices, modules.shared
+        _model, self.preprocess = clip.load("ViT-L/14@336px", device=self.devices.device_interrogate)
+        self.devices.torch_gc()
+        with open(MODEL_FILE, 'rb') as f:
+            torch.load = modules.safe.unsafe_torch_load
+            model = pickle.load(f)
+            torch.load = modules.safe.load
+            # sorry if you have low vram lol
+            # if not self.shared.cmd_opts.no_half: model = model.half()
+            if not self.shared.opts.interrogate_keep_models_in_memory: model = model.to(self.devices.cpu)
+            self.model = model
+            self.dtype = next(model.parameters()).dtype
+    def load(self):
+        self.model = self.model.to(self.devices.device_interrogate)
+    def unload(self):
+        if not self.shared.opts.interrogate_keep_models_in_memory:
+            self.model = self.model.to(self.devices.cpu)
+            self.devices.torch_gc()
+    def predict(self, im) -> str:
+        o = self.model(
+            # .type(self.dtype).to()
+            torch.unsqueeze(self.preprocess(im),0).to(self.devices.device_interrogate)
+        )[0]
 
-def load_new():
-    print('loading model')
-    model, preprocess = clip.load("ViT-L/14@336px", device=device)
-    model.to(torch.float32)
-
-    linear = torch.nn.Linear(model.visual.output_dim,len(taglist)).to('cuda')
-    linear.train(True)
-
-    model = torch.nn.Sequential(model.visual,linear)
-
-    return model
-
-model, preprocess = clip.load("ViT-L/14@336px", device=device) #need preprocess
-model = pickle.load(open('./model.torch','rb'))
-
-def predict(image):
-    if os.path.exists(image):
-        image = Image.open(image)
-    else:
-        image = Image.open(requests.get(image, stream=True).raw)
-    o = model(torch.unsqueeze(preprocess(image),0).to(device))[0]
-    
-    return ', '.join([taglist[i] for i in sorted(range(len(taglist)),key = lambda x:o[x],reverse=True)[:20]])
-
-
-while True:
-    print(predict(input()))
+        return ','.join([
+            taglist[i] for i in sorted(
+                range(len(taglist)), key=lambda x:o[x], reverse=True
+            )[:20]
+        ])
 
 
